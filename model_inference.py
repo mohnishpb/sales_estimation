@@ -2,14 +2,23 @@ import pandas as pd
 import numpy as np
 import joblib
 from datetime import datetime
+import os
 
 # --- Global objects loaded once when the script starts ---
 try:
-    MODEL = joblib.load(r'C:\Users\Mohnish.Pakanati\OneDrive - BILVANTIS TECHNOLOGIES PRIVATE LIMITED\Document\sales_prediction\lgbm_model_v1.pkl')
-    PREPROCESSOR = joblib.load(r'C:\Users\Mohnish.Pakanati\OneDrive - BILVANTIS TECHNOLOGIES PRIVATE LIMITED\Document\sales_prediction\preprocessor_v1.pkl')
+    # Use relative paths for portability
+    model_path = os.path.join('pkl_files', 'lgbm_model_v1.pkl')
+    preprocessor_path = os.path.join('pkl_files', 'preprocessor_v1.pkl')
+    
+    MODEL = joblib.load(model_path)
+    PREPROCESSOR = joblib.load(preprocessor_path)
     print("Model and preprocessor loaded successfully.")
-except FileNotFoundError:
-    print("Error: Model or preprocessor file not found. Please run the training script to generate them.")
+except FileNotFoundError as e:
+    print(f"Error: Model or preprocessor file not found: {e}")
+    print("Please ensure the pkl files are in the pkl_files directory.")
+    MODEL, PREPROCESSOR = None, None
+except Exception as e:
+    print(f"Error loading model: {e}")
     MODEL, PREPROCESSOR = None, None
 
 def predict_price(input_data: dict) -> dict:
