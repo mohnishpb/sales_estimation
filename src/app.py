@@ -3,11 +3,15 @@ from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 import uvicorn
+from model_inference import predict_price
 
 app = FastAPI(title="VIN Price Estimator")
 
 class VINRequest(BaseModel):
     df: list[dict]
+
+class DataRequest(BaseModel):
+    features: dict
 
 def get_vin_data(vin: str):
     vin_search = vin[:8]
@@ -64,6 +68,11 @@ def estimate_price(request: VINRequest):
         "matches_found": len(request.df),
         "estimated_price": estimated_price
     }
+
+@app.post("/predict_price/")
+def predict_price_from_features(request: DataRequest):
+    result = predict_price(request.features)
+    return result
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

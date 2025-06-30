@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import json
-from model_inference_simple import predict_price
+# from src.model_inference import predict_price
 import joblib
 import os
 
@@ -61,6 +61,19 @@ def call_prediction_api(vehicle_data):
     """Call the prediction API with vehicle data"""
     try:
         response = requests.post(f"{API_BASE_URL}/estimate_price/", json={"df": vehicle_data})
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"API Error: {response.status_code} - {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error calling prediction API: {e}")
+        return None
+
+def call_prediction_api_from_features(features):
+    """Call the prediction API with vehicle data"""
+    try:
+        response = requests.post(f"{API_BASE_URL}/predict_price/", json={"features": features})
         if response.status_code == 200:
             return response.json()
         else:
@@ -195,7 +208,7 @@ def manual_input_prediction():
             
             with st.spinner("Making prediction..."):
                 # Call the ML model
-                prediction_result = predict_price(input_data)
+                prediction_result = call_prediction_api_from_features(input_data)
                 
                 if 'error' in prediction_result:
                     st.error(f"Prediction Error: {prediction_result['error']}")

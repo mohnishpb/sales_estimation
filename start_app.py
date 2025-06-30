@@ -15,7 +15,7 @@ def start_fastapi_server():
     """Start the FastAPI server"""
     print("Starting FastAPI server...")
     try:
-        process = subprocess.Popen([sys.executable, "app.py"], 
+        process = subprocess.Popen([sys.executable, "src/app.py"], 
                                  stdout=subprocess.PIPE, 
                                  stderr=subprocess.PIPE)
         time.sleep(3)  # Wait for server to start
@@ -52,7 +52,7 @@ def main():
     print("=" * 50)
     
     # Check if required files exist
-    required_files = ["app.py", "streamlit_app.py", "data.csv"]
+    required_files = ["src/app.py", "streamlit_app.py", "data.csv"]
     required_dirs = ["pkl_files"]
     
     for file in required_files:

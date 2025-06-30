@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import os
-
 # --- Global objects loaded once when the script starts ---
 MODEL = None
 PREPROCESSOR = None
