@@ -50,8 +50,8 @@ def estimate_price_by_vin(df_similar: list[dict]):
 
     return float(df_cleaned['Sale Price'].median())
 
-@app.get("/estimate_price/{vin}")
-def estimate_price(vin: str):
+@app.get("/get-data/{vin}")
+def get_data(vin: str):
     df = get_vin_data(vin)
     if df.empty:
         raise HTTPException(status_code=404, detail="No similar VINs found")

@@ -47,7 +47,7 @@ def get_unique_values_from_data():
 def call_vin_api(vin):
     """Call the VIN-based API to get similar vehicles"""
     try:
-        response = requests.get(f"{API_BASE_URL}/estimate_price/{vin}")
+        response = requests.get(f"{API_BASE_URL}/get-data/{vin}")
         if response.status_code == 200:
             return response.json()
         else:
@@ -90,9 +90,16 @@ def vin_based_prediction():
     st.header("VIN-Based Price Prediction")
     st.markdown("Enter a VIN number to find similar vehicles and estimate the price.")
     
+    # Initialize session state
+    if 'similar_vehicles' not in st.session_state:
+        st.session_state.similar_vehicles = None
+    if 'vin_searched' not in st.session_state:
+        st.session_state.vin_searched = None
+    
     # VIN input
     vin = st.text_input("Enter VIN Number:", placeholder="e.g., 1HGBH41JXMN109186")
     
+    # Search button
     if st.button("Search Similar Vehicles", type="primary"):
         if vin:
             with st.spinner("Searching for similar vehicles..."):
@@ -100,51 +107,44 @@ def vin_based_prediction():
                 similar_vehicles = call_vin_api(vin)
                 
                 if similar_vehicles:
+                    st.session_state.similar_vehicles = similar_vehicles
+                    st.session_state.vin_searched = vin
                     st.success(f"Found {len(similar_vehicles)} similar vehicles!")
-                    
-                    # Display the similar vehicles
-                    st.subheader("Similar Vehicles Found:")
-                    df_similar = pd.DataFrame(similar_vehicles)
-                    st.dataframe(df_similar, use_container_width=True)
-                    
-                    # Show statistics
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Number of Matches", len(similar_vehicles))
-                    with col2:
-                        if 'Sale Price' in df_similar.columns:
-                            avg_price = df_similar['Sale Price'].mean()
-                            st.metric("Average Price", f"${avg_price:,.2f}")
-                    with col3:
-                        if 'Sale Price' in df_similar.columns:
-                            median_price = df_similar['Sale Price'].median()
-                            st.metric("Median Price", f"${median_price:,.2f}")
-                    
-                    # Prediction button
-                    if st.button("Predict Price", type="secondary"):
-                        with st.spinner("Calculating price prediction..."):
-                            # Call the prediction API
-                            prediction_result = call_prediction_api(similar_vehicles)
-                            
-                            if prediction_result:
-                                st.subheader("Price Prediction Results:")
-                                
-                                col1, col2 = st.columns(2)
-                                with col1:
-                                    st.metric(
-                                        "Estimated Price", 
-                                        f"${prediction_result['estimated_price']:,.2f}",
-                                        delta=f"Based on {prediction_result['matches_found']} similar vehicles"
-                                    )
-                                with col2:
-                                    st.metric("Matches Used", prediction_result['matches_found'])
-                                
-                                # Show price distribution
-                                if 'Sale Price' in df_similar.columns:
-                                    st.subheader("Price Distribution of Similar Vehicles")
-                                    st.bar_chart(df_similar['Sale Price'])
+                else:
+                    st.session_state.similar_vehicles = None
+                    st.session_state.vin_searched = None
         else:
             st.warning("Please enter a VIN number.")
+    
+    # Display results if we have similar vehicles
+    if st.session_state.similar_vehicles:
+        st.subheader("Similar Vehicles Found:")
+        df_similar = pd.DataFrame(st.session_state.similar_vehicles)
+        st.dataframe(df_similar, use_container_width=True)
+        
+        # Prediction button
+        if st.button("Predict Price", type="secondary"):
+            with st.spinner("Calculating price prediction..."):
+                # Call the prediction API
+                prediction_result = call_prediction_api(st.session_state.similar_vehicles)
+                
+                if prediction_result:
+                    st.subheader("Price Prediction Results:")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(
+                            "Estimated Price", 
+                            f"${prediction_result['estimated_price']:,.2f}",
+                            delta=f"Based on {prediction_result['matches_found']} similar vehicles"
+                        )
+                    with col2:
+                        st.metric("Matches Used", prediction_result['matches_found'])
+                    
+                    # Show price distribution
+                    if 'Sale Price' in df_similar.columns:
+                        st.subheader("Price Distribution of Similar Vehicles")
+                        st.bar_chart(df_similar['Sale Price'])
 
 def manual_input_prediction():
     st.header("Manual Input Price Prediction")
