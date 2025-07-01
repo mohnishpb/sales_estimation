@@ -1,29 +1,33 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import os
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+from sklearn.ensemble import RandomForestRegressor
+import lightgbm as lgb
+import xgboost as xgb
+
+# Import the same helper functions and config used during training
+from config import BRAND_TIER_MAP
+
 # --- Global objects loaded once when the script starts ---
 MODEL = None
-PREPROCESSOR = None
+PIPELINE_PATH = 'best_vehicle_price_pipeline_final.pkl'
+MAX_LOG_PREDICTION = 15.0 
 
 def load_model_simple():
     """Load model with fallback to simple prediction"""
-    global MODEL, PREPROCESSOR
-    
+    global PIPELINE, MODEL
+    import joblib
+# --- Global objects loaded once when the script starts ---
     try:
-        import joblib
-        # Use relative paths for portability
-        model_path = os.path.join('pkl_files', 'lgbm_model_v1.pkl')
-        preprocessor_path = os.path.join('pkl_files', 'preprocessor_v1.pkl')
-        
-        MODEL = joblib.load(model_path)
-        PREPROCESSOR = joblib.load(preprocessor_path)
-        print("Model and preprocessor loaded successfully.")
-        return True
-    except Exception as e:
-        print(f"Warning: Could not load ML model ({e}). Using simple prediction method.")
-        MODEL, PREPROCESSOR = None, None
-        return False
+        PIPELINE = joblib.load(PIPELINE_PATH)
+        print(f"✅ Model pipeline loaded successfully from {PIPELINE_PATH}")
+        print(f"    Best model type: {type(PIPELINE.named_steps['regressor']).__name__}")
+    except FileNotFoundError:
+        print(f"❌ FATAL ERROR: Model pipeline file not found at '{PIPELINE_PATH}'.")
+        print("    Please run the training script first to generate the artifact.")
+        PIPELINE = None
 
 def simple_price_prediction(input_data: dict) -> dict:
     """
@@ -112,125 +116,165 @@ def simple_price_prediction(input_data: dict) -> dict:
             'method': 'fallback'
         }
 
+
+def get_automobile_type(model_name: str) -> str:
+    """Classifies a vehicle into a general type based on keywords."""
+    if not isinstance(model_name, str): return 'UNKNOWN'
+    model_lower = model_name.lower()
+    pickup_keys = ['f-150', 'f150', 'silverado', 'sierra', 'ram', 'tundra', 'tacoma', 'titan', 'ranger', 'colorado']
+    suv_keys = ['suv', 'explorer', 'cherokee', 'wrangler', 'durango', '4runner', 'highlander', 'rav4', 'tahoe', 'suburban', 'escalade']
+    van_keys = ['van', 'sienna', 'odyssey', 'pacifica', 'transit', 'sprinter']
+    if any(key in model_lower for key in pickup_keys): return 'PICKUP'
+    if any(key in model_lower for key in suv_keys): return 'SUV'
+    if any(key in model_lower for key in van_keys): return 'VAN_MINIVAN'
+    return 'SEDAN_COUPE_HATCH'
+
+
+# --- Main Inference Function ---
 def predict_price(input_data: dict) -> dict:
     """
-    Predicts the sale price of a vehicle using either ML model or simple statistical method.
-    
+    Predicts the sale price of a vehicle using the pre-trained model pipeline.
+
+    This function replicates the feature engineering steps from training and then
+    uses the loaded pipeline to preprocess and predict.
+
     Args:
         input_data (dict): A dictionary containing the vehicle's features.
-                           Keys must match the column names used during training.
-                           Example:
-                           {
-                               'Lot Year': 2018,
-                               'Odometer Reading': 50000,
-                               'Lot Make': 'FORD',
-                               'Lot Model': 'FUSION',
-                               'Lot Run Condition': 'RUN & DRIVE',
-                               'Sale Title Type': 'CERTIFICATE OF TITLE',
-                               'Damage Type Description': 'FRONT END',
-                               'Lot Fuel Type': 'GAS'
-                           }
 
     Returns:
-        dict: A dictionary containing the predicted price and a confidence measure.
+        dict: A dictionary containing the prediction and associated metadata.
     """
-    # Try to load model if not already loaded
-    if MODEL is None and PREPROCESSOR is None:
-        load_model_simple()
-    
-    # If ML model is available, use it
-    if MODEL is not None and PREPROCESSOR is not None:
-        try:
-            # --- 1. Input Validation and DataFrame Creation ---
-            input_df = pd.DataFrame([input_data])
-            
-            # Ensure all required columns are present
-            required_cols = PREPROCESSOR.feature_names_in_
-            expected_keys = [col for col in required_cols if col != 'Vehicle Age'] + ['Lot Year']
-            
-            for col in expected_keys:
-                 if col not in input_df.columns:
-                     return {'error': f"Missing required feature in input data: '{col}'"}
+    if not PIPELINE:
+        return {'error': 'Model pipeline is not loaded. Cannot make predictions.'}
 
-            # --- 2. Preprocessing ---
-            # a. Feature Engineering: Create 'Vehicle Age'
-            current_year = datetime.now().year
-            input_df['Vehicle Age'] = current_year - input_df['Lot Year']
-            
-            # b. Apply the loaded preprocessor
-            input_processed = PREPROCESSOR.transform(input_df)
+    try:
+        # 1. Create a DataFrame from the input dictionary
+        input_df = pd.DataFrame([input_data])
 
-            # --- 3. Prediction ---
-            # a. Get the log-scale prediction
-            log_prediction = MODEL.predict(input_processed)[0]
-            
-            # b. Convert prediction back to the original dollar scale
-            predicted_price = np.expm1(log_prediction)
-            
-            # c. Get prediction confidence
+        # 2. Replicate Feature Engineering - This MUST match the training script
+        # a. Clean string inputs
+        for col in input_df.select_dtypes(include=['object']).columns:
+            input_df[col] = input_df[col].str.strip()
+
+        # b. Create 'Vehicle Age'
+        input_df['Vehicle Age'] = datetime.now().year - input_df['Lot Year']
+
+        # c. Create 'Brand_Tier'
+        #    AT INFERENCE, we CANNOT use price-based heuristics. We rely on our static map.
+        #    Any new brand will get a 'Standard' default, which is a safe assumption.
+        input_df['Brand_Tier'] = input_df['Lot Make'].apply(
+            lambda make: BRAND_TIER_MAP.get(make, 'Standard')
+        )
+
+        # d. Create 'Automobile_Type'
+        input_df['Automobile_Type'] = input_df['Lot Model'].apply(get_automobile_type)
+
+        # The pipeline's ColumnTransformer will select the correct columns from here.
+        # No need to manually drop columns.
+
+        # 3. Prediction
+        # The pipeline handles preprocessing and prediction in one step.
+        log_prediction = PIPELINE.predict(input_df)[0]
+
+        # 4. Post-processing
+        # a. Apply clipping as a safety net against overflow
+        log_prediction_clipped = np.clip(log_prediction, a_min=None, a_max=MAX_LOG_PREDICTION)
+
+        # b. Convert prediction back to the original dollar scale
+        predicted_price = np.expm1(log_prediction_clipped)
+
+        # c. Calculate Confidence Level (only for tree-based models)
+        regressor = PIPELINE.named_steps['regressor']
+        if hasattr(regressor, 'feature_importances_'):
+            # This is a tree-based model. We can estimate confidence.
+            # We must transform the data first before passing it to the regressor
+            processed_input = PIPELINE.named_steps['preprocessor'].transform(input_df)
+
             predictions_per_tree = []
-            for i in range(MODEL.n_estimators_):
-                tree_pred = MODEL.predict(input_processed, start_iteration=i, num_iteration=1)
-                predictions_per_tree.append(np.expm1(tree_pred[0]))
+            if isinstance(regressor, (lgb.LGBMRegressor, xgb.XGBRegressor)):
+                # For LightGBM/XGBoost, we can get predictions from each iteration
+                for i in range(regressor.n_estimators):
+                    tree_pred = regressor.predict(processed_input, iteration_range=(i, i + 1))
+                    predictions_per_tree.append(np.expm1(tree_pred[0]))
+            elif isinstance(regressor, RandomForestRegressor):
+                 # For RandomForest, we get predictions from each tree in the forest
+                for tree in regressor.estimators_:
+                    tree_pred = tree.predict(processed_input)
+                    predictions_per_tree.append(np.expm1(tree_pred[0]))
 
             confidence_std_dev = np.std(predictions_per_tree)
-            
-            # Normalize the std dev to a "confidence level"
+
             if confidence_std_dev < 1000:
                 confidence_level = "High"
-            elif confidence_std_dev < 3000:
+            elif confidence_std_dev < 5000:
                 confidence_level = "Medium"
             else:
                 confidence_level = "Low"
+        else:
+            # Linear models don't have an equivalent simple confidence measure
+            confidence_level = "N/A (Linear Model)"
+            confidence_std_dev = None
 
-            # --- 4. Format and Return Output ---
-            result = {
-                'predicted_sale_price': round(predicted_price, 2),
-                'confidence_level': confidence_level,
-                'estimated_prediction_variability': f"${round(confidence_std_dev, 2)}",
-                'method': 'ml_model'
-            }
-            
-            return result
-            
-        except Exception as e:
-            print(f"ML model prediction failed: {e}. Falling back to simple method.")
-            return simple_price_prediction(input_data)
-    
-    else:
-        # Use simple statistical method
-        return simple_price_prediction(input_data)
+    except Exception as e:
+        return {'error': f"An error occurred during prediction: {e}"}
+
+    # 5. Format and Return Output
+    result = {
+        'predicted_sale_price': round(predicted_price, 2),
+        'confidence_level': confidence_level,
+        'metadata': {
+            'model_used': type(PIPELINE.named_steps['regressor']).__name__,
+            'brand_tier_assigned': input_df['Brand_Tier'].iloc[0],
+            'automobile_type_assigned': input_df['Automobile_Type'].iloc[0],
+            'prediction_variability_est': f"${round(confidence_std_dev, 2)}" if confidence_std_dev is not None else "N/A"
+        }
+    }
+
+    return result
 
 # --- USAGE EXAMPLE ---
 if __name__ == '__main__':
     # Example 1: A standard vehicle
     sample_input_1 = {
-        'Lot Year': 2018,
-        'Odometer Reading': 55000,
-        'Lot Make': 'FORD',
-        'Lot Model': 'FOCUS SEL',
-        'Lot Run Condition': 'RUN & DRIVE',
-        'Sale Title Type': 'CERTIFICATE OF TITLE',
-        'Damage Type Description': 'FRONT END',
+        'Lot Year': 2019, 'Odometer Reading': 60000, 'Lot Make': 'TOYT', 
+        'Lot Model': 'CAMRY SE', 'Lot Run Condition': 'RUN & DRIVE', 
+        'Sale Title Type': 'CERTIFICATE OF TITLE', 'Damage Type Description': 'MINOR DENT/SCRATCHES', 
         'Lot Fuel Type': 'GAS'
     }
-    
     prediction_1 = predict_price(sample_input_1)
-    print("\n--- Prediction 1 ---")
+    print("\n--- Prediction 1 (Standard Car) ---")
     print(prediction_1)
 
-    # Example 2: A rare or unusual vehicle
+    # Example 2: A known luxury/exotic car
     sample_input_2 = {
-        'Lot Year': 2022,
-        'Odometer Reading': 15000,
-        'Lot Make': 'TOYOTA',
-        'Lot Model': 'CAMRY',
-        'Lot Run Condition': 'RUN & DRIVE',
-        'Sale Title Type': 'CERTIFICATE OF TITLE',
-        'Damage Type Description': 'FRONT END',
+        'Lot Year': 2021, 'Odometer Reading': 15000, 'Lot Make': 'PORS', 
+        'Lot Model': '911 TURBO', 'Lot Run Condition': 'RUN & DRIVE', 
+        'Sale Title Type': 'CERTIFICATE OF TITLE', 'Damage Type Description': 'None', 
         'Lot Fuel Type': 'GAS'
     }
-    
     prediction_2 = predict_price(sample_input_2)
-    print("\n--- Prediction 2 ---")
-    print(prediction_2) 
+    print("\n--- Prediction 2 (Luxury Car) ---")
+    print(prediction_2)
+
+    # Example 3: A completely new, unseen brand at inference time
+    # The system should gracefully handle this by assigning 'Standard' tier.
+    sample_input_3 = {
+        'Lot Year': 2020, 'Odometer Reading': 8000, 'Lot Make': 'GENESIS', # Assuming GENESIS is not in our static map
+        'Lot Model': 'G70', 'Lot Run Condition': 'RUN & DRIVE', 
+        'Sale Title Type': 'CERTIFICATE OF TITLE', 'Damage Type Description': 'None', 
+        'Lot Fuel Type': 'GAS'
+    }
+    prediction_3 = predict_price(sample_input_3)
+    print("\n--- Prediction 3 (Unknown Brand at Inference) ---")
+    print(prediction_3)
+
+    # Example 4: A pickup truck to test the Automobile_Type feature
+    sample_input_4 = {
+        'Lot Year': 2018, 'Odometer Reading': 85000, 'Lot Make': 'FORD',
+        'Lot Model': 'F-150 SUPERCREW', 'Lot Run Condition': 'RUN & DRIVE',
+        'Sale Title Type': 'CERTIFICATE OF TITLE', 'Damage Type Description': 'REAR END',
+        'Lot Fuel Type': 'GAS'
+    }
+    prediction_4 = predict_price(sample_input_4)
+    print("\n--- Prediction 4 (Pickup Truck) ---")
+    print(prediction_4)

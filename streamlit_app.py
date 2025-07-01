@@ -32,12 +32,12 @@ def get_unique_values_from_data():
         unique_values = {}
         
         # Get unique values for categorical columns
-        categorical_cols = ['Lot Make', 'Lot Model', 'Lot Run Condition', 
+        categorical_cols = ['Automobile' 'Lot Make', 'Lot Model', 'Lot Run Condition', 
                           'Sale Title Type', 'Damage Type Description', 'Lot Fuel Type']
         
         for col in categorical_cols:
             if col in data.columns:
-                unique_values[col] = sorted(data[col].dropna().unique().tolist())
+                unique_values[col] = sorted(data[col].dropna().str.strip().unique().tolist())
         
         return unique_values
     except Exception as e:
