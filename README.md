@@ -19,15 +19,19 @@ This Streamlit application provides two methods for estimating vehicle prices:
 
 ## Setup Instructions
 
-### 1. Install Dependencies
+### 1. Create an environment and install dependencies
+
 ```bash
+conda create -n myenv python=3.10
+conda activate myenv
+cd sales_estimation
 pip install -r requirements.txt
 ```
 
 ### 2. Start the FastAPI Server
 First, start the FastAPI server that provides the APIs:
 ```bash
-python app.py
+python src/app.py
 ```
 This will start the server on `http://localhost:8000`
 
