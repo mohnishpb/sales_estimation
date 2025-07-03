@@ -8,7 +8,12 @@ This Streamlit application provides two methods for estimating vehicle prices:
 ## Quick Start
 
 ### Option 1: Use the Startup Script (Recommended)
+
 ```bash
+conda create -n myenv python=3.10
+conda activate myenv
+cd sales_estimation
+pip install -r requirements.txt
 python start_app.py
 ```
 This will automatically start both the FastAPI server and Streamlit app.
@@ -16,7 +21,7 @@ This will automatically start both the FastAPI server and Streamlit app.
 ### Option 2: Manual Start
 1. **Start FastAPI Server** (Terminal 1):
    ```bash
-   python app.py
+   python src/app.py
    ```
    Server will run on: http://localhost:8000
 
