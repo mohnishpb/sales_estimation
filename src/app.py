@@ -24,7 +24,9 @@ def get_vin_data(vin: str):
     str_cols = data.select_dtypes(include=['object', 'string']).columns
     data[str_cols] = data[str_cols].apply(lambda x: x.str.strip())
 
+    data_year_filter = vin.str.strip().str[9]
     data_cleaned = data[data['VIN'].str.strip().str[:8] == vin_search].copy()
+    data_cleaned = data_cleaned[data_cleaned['VIN'].str.strip().str[9] == data_year_filter]
 
     if data_cleaned.empty:
         return pd.DataFrame()
