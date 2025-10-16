@@ -14,8 +14,8 @@ class DataRequest(BaseModel):
     features: dict
 
 def get_vin_data(vin: str):
+    vin.strip().strip("'")
     vin_search = vin[:8]
-
     try:
         data = pd.read_csv('data.csv')
     except FileNotFoundError:
@@ -24,7 +24,7 @@ def get_vin_data(vin: str):
     str_cols = data.select_dtypes(include=['object', 'string']).columns
     data[str_cols] = data[str_cols].apply(lambda x: x.str.strip())
 
-    data_year_filter = vin.str.strip().str[9]
+    data_year_filter = vin[9]
     data_cleaned = data[data['VIN'].str.strip().str[:8] == vin_search].copy()
     data_cleaned = data_cleaned[data_cleaned['VIN'].str.strip().str[9] == data_year_filter]
 
